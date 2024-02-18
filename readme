@@ -1,0 +1,2 @@
+# start
+curl https://raw.githubusercontent.com/GrimAnEye/arch_hyperland/main/boostrap.bash | bash

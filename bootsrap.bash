@@ -1,7 +1,7 @@
 #!/bin/bash
 N_PROJECT=arch_hyperland
 
-pacman -S git
+pacman -S --noconfirm git
 
 if [ "${PWD##*/}" == "$N_PROJECT" ] && [ -d ".git" ]; then
     git pull origin main
