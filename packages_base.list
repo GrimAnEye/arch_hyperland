@@ -1,0 +1,10 @@
+base
+base-devel
+linux
+linux-firmware
+less
+mc
+dhclient
+zsh
+grub
+networkmanager

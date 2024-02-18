@@ -30,112 +30,95 @@ done
 unset $N_yn
 
 ####################################################################
-
-# Тут развилочка для выбора режима диска
-
-# Выясняю в каком режиме выполнена загрузка
+# Find out in what mode the operating system was loaded
 if [ -d "/sys/firmware/efi/" ]; then
-    MODE=gpt
+    N_BOOTMODE=gpt
 else
-    MODE=msdos
+    N_BOOTMODE=msdos
 fi
+echo "===BOOTMODE: $N_BOOTMODE==="
 
+# select architecture.
 # ARCH=$(</sys/firmware/efi/fw_platform_size)
 
-# Выбираю первый диск для разбивки
-DEV=$(lsblk -l | grep sd | head -1 | awk '{print $1}')
+# select the firts disk for install
+N_DEVINSTALL=$(lsblk -l | grep sd | head -1 | awk '{print $1}')
+echo "===DRIVE SELECTED: $N_DEVINSTALL==="
 
-# создаю новую таблицу разделов
-parted "/dev/${DEV}" --script mklabel $MODE
+# create new partition table
+parted "/dev/$N_DEVINSTALL" --script mklabel $N_BOOTMODE
 
-if [ $MODE == "gpt" ]; then
-    # Если режим установки GPT, создаю efi раздел
-    parted "/dev/${DEV}" --script mkpart ESP fat32 1Mib 513Mib
-    # Создаю основной раздел системы
-    parted "/dev/${DEV}" --script mkpart primary ext4 1000MiB 100%
+if [ $N_BOOTMODE == "gpt" ]; then
+    parted "/dev/$N_DEVINSTALL" --script mkpart ESP fat32 1Mib 513Mib
+    parted "/dev/$N_DEVINSTALL" --script mkpart primary ext4 1000MiB 100%
 
-    # Форматирование разделов
-    mkfs.fat -F32 "/dev/${DEV}1"
-    mkfs.ext4 -F "/dev/${DEV}2"
+    mkfs.fat -F32 "/dev/${N_DEVINSTALL}1"
+    mkfs.ext4 -F "/dev/${N_DEVINSTALL}2"
 
-    # Монтирование загрузовного раздела
-    mount "/dev/${DEV}2" "/mnt"
+    mount "/dev/${N_DEVINSTALL}2" "/mnt"
     mkdir "/mnt/boot"
-    mount "/dev/${DEV}1" "/mnt/boot"
+    mount "/dev/${N_DEVINSTALL}1" "/mnt/boot"
 else
-    # Если режим установки MBR, создаю раздел диска
-    parted "/dev/${DEV}" --script mkpart primary ext4 1MiB 100%
-    # Устанавливаю корневой раздел загрузки
-    parted "/dev/${DEV}" --script set 1 boot on
+    parted "/dev/$N_DEVINSTALL" --script mkpart primary ext4 1MiB 100%
+    parted "/dev/$N_DEVINSTALL" --script set 1 boot on
 
-    # Форматирование разделов
-    mkfs.ext4 -F "/dev/${DEV}1" "/mnt"
+    mkfs.ext4 -F "/dev/${N_DEVINSTALL}1" "/mnt"
 fi
+fdisk -l "/dev/$N_DEVINSTALL"
 
 ####################################################################
-
-# Установка базовой системы
-pacstrap -K "/mnt" base base-devel linux linux-firmware \
-less mc dhclient zsh grub networkmanager \
-terminator thunar
-
-# генерация таблицы дисков
+# base OS install
+pacstrap -K "/mnt" $(<packages_base.list)
 genfstab -U "/mnt" > "/mnt/etc/fstab"
-
-# Переключение в систему
 arch-chroot "/mnt"
 
 ####################################################################
-
-# установка времени
+# set time
 ln -sf "/usr/share/zoneinfo/Asia/Novosibirsk" "/etc/localtime"
 hwclock --systohc
 
-# Генерация локалей
-echo -e "en_US.UTF-8 UTF-8\nru_RU.UTF-8 UTF-8" >> "/etc/locale.gen"
+echo $N_HOSTNAME > "/etc/hostname"
+
+####################################################################
+# locale generation
+sed -i "/en_US.UTF-8/s/^#//g" /etc/locale.gen
+sed -i "/ru_RU.UTF-8/s/^#//g" /etc/locale.gen
 locale-gen
 echo "LANG=ru_RU.UTF8" > "/etc/locale.conf"
 export LANG=ru_RU.UTF8
 
-# установка раскладки и шрифта для терминала
 echo -e "KEYMAP=ru\nFONT=cyr-sun16" > "/etc/vconsole.conf"
 
 ####################################################################
-echo $N_HOSTNAME > "/etc/hostname"
-
-# установка пароля root
+# create users
 echo -e "$N_ROOTPASS\n$N_ROOTPASS" | passwd root
-
-# Выдача группе wheel админ прав
 echo "%wheel ALL=(ALL:ALL) ALL" > "/etc/sudoers.d/wheel"
 
-# создание нового пользователя, если задано имя пользователя
+# create new user
 if [ ! -z $N_USERNAME ]; then
     useradd -m -G wheel,storage,power -s /bin/zsh $N_USERNAME
     echo -e "$N_USERPASSWORD\n$N_USERPASSWORD" | passwd $N_USERNAME
 fi
 
 ####################################################################
-# Обновление баз pacman
+# pacman update
 echo -e "[multilib]\nInclude = /etc/pacman.d/mirrorlist"  >> /etc/pacman.conf
 pacman -Syy
 
-# установка grub
-if [ $MODE =="gpt" ];then
+# Grub install
+if [ $N_BOOTMODE =="gpt" ];then
     pacman -Syu --noconfirm  efibootmgr
     grub-install --target=x86_64-efi --efi-directory=/boot --bootloader-id=grub
 else
-    grub-install --recheck --targen=i386-pc "/dev/$DEV"
+    grub-install --recheck --targen=i386-pc "/dev/$N_DEVINSTALL"
 
 fi
 grub-mkconfig -o /boot/grub/grub.cfg
 
 ####################################################################
 
-# установка графики
-pacman -Syu --noconfirm hyprland xdg-desktop-portal-hyprland \
-sddm
-
+# GUI install
+pacman -Syu --noconfirm $(<packages_gui.list)
 systemctl enable sddm
 
 # ПЕРЕВЕДИ SDDM на WAYLAND
